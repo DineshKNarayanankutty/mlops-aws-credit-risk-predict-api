@@ -1,0 +1,36 @@
+version: 0.2
+
+env:
+  shell: bash
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.10
+    commands:
+      - set -euo pipefail
+      - curl -sSL -o kubectl "https://dl.k8s.io/release/$(curl -sSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+      - chmod +x kubectl
+      - mv kubectl /usr/local/bin/kubectl
+  pre_build:
+    commands:
+      - ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+      - IMAGE_TAG="${CODEBUILD_RESOLVED_SOURCE_VERSION:0:7}"
+      - IMAGE_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO_NAME}:${IMAGE_TAG}"
+      - aws ecr get-login-password --region "${AWS_DEFAULT_REGION}" | docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
+      - mkdir -p model
+      - aws s3 cp "${MODEL_ARTIFACT_S3_URI}" model/model.pkl
+  build:
+    commands:
+      - docker build -f docker/Dockerfile -t "${ECR_REPO_NAME}:${IMAGE_TAG}" .
+      - docker tag "${ECR_REPO_NAME}:${IMAGE_TAG}" "${IMAGE_URI}"
+  post_build:
+    commands:
+      - docker push "${IMAGE_URI}"
+      - aws eks update-kubeconfig --name "${EKS_CLUSTER_NAME}" --region "${AWS_DEFAULT_REGION}"
+      - kubectl set image deployment/"${K8S_DEPLOYMENT_NAME}" "${K8S_CONTAINER_NAME}"="${IMAGE_URI}" --record=true
+      - kubectl rollout status deployment/"${K8S_DEPLOYMENT_NAME}" --timeout=180s
+
+artifacts:
+  files:
+    - pipeline/buildspec.yml
