@@ -22,11 +22,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--test-size", type=float, default=0.2)
     parser.add_argument("--random-state", type=int, default=42)
 
-    parser.add_argument("--model-dir", type=str, default=os.getenv("SM_MODEL_DIR", "/opt/ml/model"))
+    parser.add_argument("--model-dir", type=str, default=os.getenv("SM_MODEL_DIR", "./artifacts/model"))
     parser.add_argument(
         "--output-data-dir",
         type=str,
-        default=os.getenv("SM_OUTPUT_DATA_DIR", "/opt/ml/output/data"),
+        default=os.getenv("SM_OUTPUT_DATA_DIR", "./artifacts/output"),
     )
     parser.add_argument("--model-s3-uri", type=str, default=os.getenv("MODEL_S3_URI", ""))
     return parser.parse_args()
