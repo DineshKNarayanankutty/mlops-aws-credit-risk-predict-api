@@ -45,15 +45,25 @@ logs/
 ####################################
 # Terraform
 ####################################
-terraform/.terraform/
-terraform/.terraform.lock.hcl
-terraform.tfstate
-terraform.tfstate.*
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
 crash.log
+
+# Ignore plan files
+*tfplan
+*.tfplan
+
+# Ignore override files
 override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
+
+# Ignore sensitive files
+*.pem
+*.key
 
 ####################################
 # AWS Credentials
