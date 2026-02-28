@@ -1,298 +1,211 @@
-# 🚀 Enterprise-Grade MLOps Platform on AWS
+# MLOps AWS Infrastructure — Terraform
 
-### Terraform + EKS + Multi-Environment Architecture
-
-This repository contains Infrastructure as Code (IaC) for a production-style, multi-environment MLOps platform built on AWS using Terraform.
-
-The objective is to simulate a real-world enterprise cloud platform setup with:
-
-* Strict environment isolation (dev / stage / prod)
-* Modular Terraform architecture
-* Remote state management
-* Production-ready EKS clusters
-* Secure container and artifact storage
-* CI/CD-ready structure
+This repository contains the Terraform infrastructure code for the **MLOps Platform** on AWS. It provisions a full end-to-end MLOps stack including networking, compute, container registry, model registry, CI/CD pipelines, and monitoring — across three environments: `dev`, `stage`, and `prod`.
 
 ---
 
-# 🏗 Architecture Overview
-
-Each environment (dev, stage, prod) provisions its own:
-
-* VPC (isolated CIDR range)
-* Public & Private Subnets (Multi-AZ)
-* NAT Gateway
-* Amazon EKS Cluster (Kubernetes 1.35)
-* Managed Node Group (AL2023)
-* Amazon ECR Repository
-* Amazon S3 Bucket (ML artifacts)
-* Remote Terraform State (S3 backend with lockfile)
-
-This simulates a real enterprise landing zone inside a single AWS account.
-
----
-
-# 🌐 Environment Isolation Strategy
-
-Each environment has:
-
-| Environment | VPC CIDR    | State Key               | Cluster Name        |
-| ----------- | ----------- | ----------------------- | ------------------- |
-| DEV         | 10.0.0.0/16 | dev/terraform.tfstate   | mlops-dev-cluster   |
-| STAGE       | 10.1.0.0/16 | stage/terraform.tfstate | mlops-stage-cluster |
-| PROD        | 10.2.0.0/16 | prod/terraform.tfstate  | mlops-prod-cluster  |
-
-Isolation is achieved through:
-
-* Separate state files
-* Separate VPCs
-* Separate ECR repositories
-* Separate S3 artifact buckets
-* Environment-specific tagging
-
----
-
-# 📁 Project Structure
+## Repository Structure
 
 ```
-mlops-platform/
-│
-├── modules/
-│   ├── vpc/                # Reusable VPC module (environment-aware)
-│   ├── eks/                # EKS wrapper module
-│   ├── ecr/                # Container registry module
-│   └── s3/                 # Artifact storage module
-│
+.
 ├── environments/
 │   ├── dev/
+│   │   ├── backend.tf
+│   │   ├── main.tf
+│   │   ├── provider.tf
+│   │   ├── terraform.tfvars
+│   │   ├── variables.tf
+│   │   └── versions.tf
 │   ├── stage/
+│   │   ├── backend.tf
+│   │   ├── main.tf
+│   │   ├── provider.tf
+│   │   ├── terraform.tfvars
+│   │   ├── variables.tf
+│   │   └── versions.tf
 │   └── prod/
 │       ├── backend.tf
 │       ├── main.tf
 │       ├── provider.tf
+│       ├── terraform.tfvars
 │       ├── variables.tf
-│       ├── versions.tf
-│       └── terraform.tfvars
-│
-└── .gitignore
+│       └── versions.tf
+└── modules/
+    ├── vpc/
+    ├── eks/
+    ├── ecr/
+    ├── s3/
+    ├── sagemaker/
+    ├── iam/
+    ├── cicd/
+    ├── alb_controller/
+    └── monitoring/
 ```
 
 ---
 
-# 🔐 Remote State Management
+## Architecture Overview
 
-Terraform state is stored remotely using:
+| Module | Purpose |
+|---|---|
+| `vpc` | VPC, public/private subnets, IGW, NAT Gateway |
+| `eks` | EKS cluster, managed node groups, KMS-encrypted EBS, ALB backend SG |
+| `ecr` | ECR repository with image scanning and lifecycle policy |
+| `s3` | General-purpose S3 bucket with KMS encryption and access logging |
+| `sagemaker` | SageMaker model artifacts bucket, model package group, execution role |
+| `iam` | IRSA roles for inference, ALB controller, CodeBuild, CodePipeline, SageMaker |
+| `cicd` | CodePipeline with GitHub source → ECR image build → SageMaker training stages |
+| `alb_controller` | AWS Load Balancer Controller via Helm with optional IRSA role creation |
+| `monitoring` | Prometheus, Grafana, metrics-server via Helm + optional CloudWatch Container Insights |
 
-* Amazon S3
-* `use_lockfile = true` (modern locking mechanism)
+---
 
-Each environment has its own state key:
+## Environment Differences
 
+| Feature | dev | stage | prod |
+|---|---|---|---|
+| AZ count | 1 | 2 | 3 |
+| NAT Gateway | Single | Single | Per-AZ |
+| Node instance type | `t3.small` | `t3.medium` | Configurable |
+| Inference node group | ❌ | ✅ | ✅ |
+| Cluster autoscaler | ❌ | ❌ | ✅ |
+| EKS public endpoint | ✅ | ❌ | ✅ |
+| ALB Controller | ❌ | ✅ | ✅ |
+| Monitoring stack | ❌ | ✅ | ✅ |
+| CloudWatch Container Insights | ❌ | ❌ | ✅ |
+| Model package group | ❌ | ✅ | ✅ |
+| Log retention | 3 days | 7 days | 30 days |
+
+---
+
+## Prerequisites
+
+- [Terraform](https://developer.hashicorp.com/terraform/install) >= `1.6.0`
+- [AWS CLI](https://aws.amazon.com/cli/) configured with appropriate credentials
+- An S3 bucket for Terraform remote state (`mlops-aws-credit-risk-s3`)
+- A [CodeStar Connection](https://docs.aws.amazon.com/dtconsole/latest/userguide/connections.html) ARN for GitHub integration
+
+### Provider Versions
+
+| Provider | Version |
+|---|---|
+| `hashicorp/aws` | `~> 5.100` |
+| `hashicorp/kubernetes` | `~> 2.35` |
+| `hashicorp/helm` | `~> 2.13` |
+
+---
+
+## Remote State Backend
+
+State is stored in S3 with native locking (`use_lockfile = true`) and encryption enabled. Each environment uses a separate state key:
+
+| Environment | State Key |
+|---|---|
+| dev | `dev/terraform.tfstate` |
+| stage | `stage/terraform.tfstate` |
+| prod | `prod/terraform.tfstate` |
+
+---
+
+## Getting Started
+
+### 1. Configure `terraform.tfvars`
+
+Before deploying, update the placeholder values in the environment's `terraform.tfvars`:
+
+```hcl
+codestar_connection_arn   = "arn:aws:codestar-connections:..."
+github_full_repository_id = "your-org/your-repo"
 ```
-dev/terraform.tfstate
-stage/terraform.tfstate
-prod/terraform.tfstate
-```
 
-Benefits:
-
-* State isolation
-* Safe parallel applies
-* No local state dependency
-* Reduced risk of corruption
-
-DynamoDB is intentionally not used (modern S3 lockfile approach).
-
----
-
-# ☸ Kubernetes Configuration
-
-EKS Configuration:
-
-* Kubernetes Version: 1.35
-* Managed Node Groups
-* AMI: AL2023_x86_64_STANDARD
-* Capacity Type: ON_DEMAND
-* IRSA enabled
-* Private subnets for worker nodes
-* Environment-based scaling
-
-Production hardening includes:
-
-* Environment-specific node sizing
-* CIDR separation
-* Strict tagging strategy
-
----
-
-# 📦 Platform Components
-
-## 🌐 Networking
-
-* Dedicated VPC per environment
-* Multi-AZ public & private subnets
-* Internet Gateway
-* NAT Gateway
-* Route tables per subnet tier
-
-## ☸ Kubernetes
-
-* Amazon EKS (Managed Control Plane)
-* Managed Node Groups
-* IRSA enabled
-
-## 📦 Container Registry
-
-* Amazon ECR
-* Image scanning enabled
-* Immutable tags
-* Lifecycle policies
-
-## 🗂 Artifact Storage
-
-* Amazon S3
-* Versioning enabled
-* Server-side encryption
-* Public access blocked
-
----
-
-# ⚙️ Prerequisites
-
-* AWS Account
-* IAM user or role with sufficient permissions
-* AWS CLI configured
-* Terraform >= 1.4
-* kubectl
-* Git
-
----
-
-# 🔑 Authentication
-
-Configure AWS credentials locally:
+### 2. Initialize and Deploy
 
 ```bash
-aws configure
-```
+# Navigate to the desired environment
+cd environments/dev   # or stage / prod
 
-No credentials are stored in this repository.
-
----
-
-# 🚀 Deployment Steps
-
-## Deploy DEV
-
-```bash
-cd environments/dev
+# Initialize Terraform with the remote backend
 terraform init
+
+# Preview changes
 terraform plan
-terraform apply
-```
 
-## Deploy STAGE
-
-```bash
-cd environments/stage
-terraform init
-terraform plan
-terraform apply
-```
-
-## Deploy PROD
-
-```bash
-cd environments/prod
-terraform init
-terraform plan
+# Apply
 terraform apply
 ```
 
 ---
 
-# 🔥 Destroy When Not In Use
+## Module Details
 
-```bash
-terraform destroy
-```
+### `vpc`
+Provisions a VPC with environment-aware AZ count (1/2/3 for dev/stage/prod), public and private subnets, an Internet Gateway, and NAT Gateways (single for dev/stage, one per AZ for prod). Subnet CIDRs are sliced automatically based on the target AZ count.
 
-⚠️ Always destroy non-production environments to avoid unnecessary costs.
+### `eks`
+Deploys an EKS cluster using the `terraform-aws-modules/eks` module with:
+- **System** node group on all environments
+- **Inference** node group (with `workload=inference` taint) on stage and prod
+- KMS-encrypted EBS volumes for all nodes
+- A dedicated ALB backend security group scoped to NodePort range
+- Cluster autoscaler IRSA role (prod only)
+- Full control plane logging with environment-based retention
 
----
+### `ecr`
+Creates an ECR repository with:
+- `IMMUTABLE` image tags
+- Scan on push enabled
+- AES256 encryption
+- Lifecycle policy to expire untagged images after 14 days
 
-# 💰 Cost Considerations
+### `s3`
+General-purpose S3 module with KMS encryption (creates key if not provided), versioning, access logging to a companion log bucket, lifecycle policy for noncurrent version expiry, and TLS-only bucket policy.
 
-Each environment provisions:
+### `sagemaker`
+Provisions the SageMaker model artifacts S3 bucket with KMS encryption and access logging, a SageMaker execution IAM role with scoped ECR and S3 access, and a model package group (skipped in dev).
 
-* EKS control plane (billable)
-* NAT Gateway (billable)
-* EC2 instances (node groups)
-* Elastic IP
-* CloudWatch logs
+### `iam`
+Creates all IRSA and service roles:
+- **Inference IRSA** — S3 read for model artifacts, ECR pull, KMS decrypt
+- **CodeBuild** — CloudWatch logs, S3 artifacts, ECR push/pull, SageMaker training, IAM PassRole
+- **CodePipeline** — S3 artifacts, CodeStar connection, CodeBuild invocation
+- **SageMaker Training** — S3 read/write for training data and artifacts, ECR pull, KMS, CloudWatch logs
+- **ALB Controller IRSA** — Full ELB/EC2/WAF management permissions
 
-Running all environments simultaneously will incur costs.
+### `cicd`
+Provisions a three-stage CodePipeline:
+1. **Source** — GitHub via CodeStar connection
+2. **Build** — Docker image build and push to ECR
+3. **Train** — Triggers a SageMaker training job
 
-Recommended practice:
+Artifacts are stored in a KMS-encrypted S3 bucket with versioning, access logging, and a TLS-only bucket policy.
 
-* Keep DEV active
-* Destroy STAGE when not needed
-* Apply PROD only when required
+### `alb_controller`
+Installs the AWS Load Balancer Controller via Helm. Supports optional IRSA role creation or accepting an existing role ARN. Configures a dedicated shared backend security group for ALB-to-node traffic.
 
----
-
-# 🧠 Design Principles
-
-* Modular Terraform architecture
-* Explicit module contracts
-* Strict environment isolation
-* Provider version pinning
-* Remote backend with locking
-* Production-style networking
-* No hardcoded shared infrastructure
-* Reusable environment-aware modules
-
----
-
-# 🔒 Security Practices
-
-* No credentials in repository
-* `.terraform` ignored
-* State file not committed
-* S3 state encryption
-* Public access blocked for artifact buckets
-* IRSA enabled (no static AWS keys in pods)
-* Environment-specific resource naming
-
----
-
-# 📈 Next Roadmap (Platform Maturity)
-
-Planned enhancements:
-
-* EKS control plane logging
-* Metrics server
-* Horizontal Pod Autoscaler
-* Karpenter (node autoscaling)
-* AWS Load Balancer Controller
-* Ingress-based routing
-* CI/CD (GitHub Actions)
-* Monitoring stack (Prometheus + Grafana)
-* Cost optimization improvements
+### `monitoring`
+Installs the monitoring stack via Helm with feature toggles for each component:
+- **Prometheus** — with persistent volume and Alertmanager
+- **Grafana** — with persistence and internal ALB service
+- **metrics-server** — for HPA support on EKS
+- **CloudWatch Container Insights** — EKS addon (prod only)
 
 ---
 
-# 🎯 Objective
+## Security Highlights
 
-This project demonstrates:
+- All S3 buckets have public access fully blocked and TLS-only bucket policies
+- EBS volumes on EKS nodes are KMS-encrypted
+- SageMaker model artifacts are KMS-encrypted at rest
+- CI/CD artifact buckets use KMS encryption with key rotation enabled
+- EKS secrets are encrypted via a cluster-managed KMS key
+- IRSA (IAM Roles for Service Accounts) used throughout — no static credentials on pods
+- EKS API server endpoint access is private-only in stage
 
-* Enterprise-grade Terraform practices
-* Multi-environment AWS architecture
-* Production-style Kubernetes platform setup
-* Secure MLOps-ready infrastructure
-* Infrastructure automation best practices
+---
 
-Built as both:
+## Contributing
 
-* A learning platform
-* A portfolio-ready cloud engineering project
+1. Create a feature branch from `main`
+2. Make changes to the relevant module or environment
+3. Run `terraform fmt` and `terraform validate` before committing
+4. Open a pull request — the CI pipeline will run `terraform plan` automatically
