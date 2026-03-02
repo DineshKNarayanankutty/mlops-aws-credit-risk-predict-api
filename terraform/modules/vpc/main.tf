@@ -10,7 +10,7 @@ locals {
 
   target_az_count = lookup(
     {
-      dev   = 1
+      dev   = 2
       stage = 2
       prod  = 3
     },
@@ -155,3 +155,4 @@ resource "aws_route_table_association" "private" {
   subnet_id      = aws_subnet.private[count.index].id
   route_table_id = aws_route_table.private[local.nat_per_az ? count.index : 0].id
 }
+
