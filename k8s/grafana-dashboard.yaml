@@ -1,0 +1,75 @@
+# FIX: Pre-built Grafana dashboard for the API.
+# Grafana is configured to auto-load dashboards from ConfigMaps with this label.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: credit-risk-api-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  credit-risk-api.json: |
+    {
+      "title": "Credit Risk API",
+      "uid": "credit-risk-api",
+      "tags": ["mlops", "inference"],
+      "panels": [
+        {
+          "title": "Request Rate (req/s)",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "targets": [{
+            "expr": "sum(rate(http_requests_total{job=\"credit-risk-api\"}[5m]))",
+            "legendFormat": "req/s"
+          }]
+        },
+        {
+          "title": "Error Rate (%)",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+          "targets": [{
+            "expr": "100 * sum(rate(http_requests_total{job=\"credit-risk-api\",status=~\"5..\"}[5m])) / sum(rate(http_requests_total{job=\"credit-risk-api\"}[5m]))",
+            "legendFormat": "error %"
+          }]
+        },
+        {
+          "title": "p50 / p95 / p99 Latency",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{job=\"credit-risk-api\",handler=\"/predict\"}[5m])) by (le))",
+              "legendFormat": "p50"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=\"credit-risk-api\",handler=\"/predict\"}[5m])) by (le))",
+              "legendFormat": "p95"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job=\"credit-risk-api\",handler=\"/predict\"}[5m])) by (le))",
+              "legendFormat": "p99"
+            }
+          ]
+        },
+        {
+          "title": "Pod Count",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 4, "x": 0, "y": 12},
+          "targets": [{
+            "expr": "count(up{job=\"credit-risk-api\"} == 1)",
+            "legendFormat": "pods"
+          }]
+        },
+        {
+          "title": "Memory Usage",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+          "targets": [{
+            "expr": "container_memory_working_set_bytes{namespace=\"inference\",container=\"credit-risk-api\"}",
+            "legendFormat": "{{pod}}"
+          }]
+        }
+      ],
+      "schemaVersion": 38,
+      "version": 1
+    }
