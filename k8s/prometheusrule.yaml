@@ -1,0 +1,74 @@
+# FIX: PrometheusRule CRDs define actual alert rules.
+# Prometheus was deployed but no rules meant no alerts would ever fire.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: credit-risk-api-alerts
+  namespace: inference
+  labels:
+    # This label makes kube-prometheus-stack pick up the rule
+    release: prometheus
+spec:
+  groups:
+    - name: credit-risk-api.availability
+      interval: 30s
+      rules:
+        - alert: CreditRiskApiDown
+          expr: absent(up{job="credit-risk-api"})
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Credit Risk API is down"
+            description: "No credit-risk-api pods are responding to Prometheus scrapes for 2 minutes."
+
+        - alert: CreditRiskApiHighErrorRate
+          expr: |
+            (
+              sum(rate(http_requests_total{job="credit-risk-api",status=~"5.."}[5m]))
+              /
+              sum(rate(http_requests_total{job="credit-risk-api"}[5m]))
+            ) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Credit Risk API error rate > 5%"
+            description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+        - alert: CreditRiskApiHighLatency
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket{job="credit-risk-api",handler="/predict"}[5m]))
+              by (le)
+            ) > 1.0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Credit Risk API p95 latency > 1 second"
+            description: "p95 /predict latency is {{ $value | humanizeDuration }}."
+
+        - alert: CreditRiskApiPodCount
+          expr: count(up{job="credit-risk-api"} == 1) < 2
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Credit Risk API has fewer than 2 healthy pods"
+            description: "Only {{ $value }} pod(s) are healthy. HPA minReplicas is 2."
+
+    - name: credit-risk-api.resources
+      interval: 60s
+      rules:
+        - alert: CreditRiskApiHighMemory
+          expr: |
+            container_memory_working_set_bytes{namespace="inference",container="credit-risk-api"}
+            / container_spec_memory_limit_bytes{namespace="inference",container="credit-risk-api"}
+            > 0.85
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Credit Risk API memory usage > 85% of limit"
+            description: "Memory at {{ $value | humanizePercentage }} of limit — OOMKill risk."
