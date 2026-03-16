@@ -1,0 +1,14 @@
+# FIX C-04: ConfigMap provides model location to both the init container
+# and the main container without baking it into the image.
+# Update model_s3_key to point at the latest promoted model artifact.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inference-config
+  namespace: inference
+data:
+  # Set to your model artifacts bucket name (output of sagemaker Terraform module)
+  model_bucket: "mlops-platform-ENV-model-artifacts-ACCOUNT_ID"
+  # S3 key for the promoted model (update after each successful training run)
+  model_s3_key: "models/latest/model.pkl"
+  expected_features: "20"
