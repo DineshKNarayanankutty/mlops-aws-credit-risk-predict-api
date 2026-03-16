@@ -1,7 +1,16 @@
+# This buildspec is used for LOCAL testing and the standalone CodeBuild
+# project invoked directly (not via the Terraform-managed CodePipeline).
+# The Terraform cicd module embeds the full pipeline buildspecs inline.
 version: 0.2
 
 env:
   shell: bash
+  # Required environment variables (set in CodeBuild project or via SSM):
+  # ECR_REPO_NAME    - ECR repository name
+  # EKS_CLUSTER_NAME - EKS cluster name
+  # K8S_NAMESPACE    - Kubernetes namespace (default: inference)
+  # K8S_DEPLOYMENT   - Deployment name (default: credit-risk-api)
+  # K8S_CONTAINER    - Container name (default: credit-risk-api)
 
 phases:
   install:
@@ -9,28 +18,44 @@ phases:
       python: 3.10
     commands:
       - set -euo pipefail
-      - curl -sSL -o kubectl "https://dl.k8s.io/release/$(curl -sSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-      - chmod +x kubectl
-      - mv kubectl /usr/local/bin/kubectl
+      # FIX: Pin kubectl version + verify checksum (was downloading latest/unchecked before)
+      - KUBECTL_VERSION="v1.31.0"
+      - curl -sSLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+      - curl -sSLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256"
+      - echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
+      - chmod +x kubectl && mv kubectl /usr/local/bin/kubectl
+      - kubectl version --client
+
   pre_build:
     commands:
       - ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
       - IMAGE_TAG="${CODEBUILD_RESOLVED_SOURCE_VERSION:0:7}"
-      - IMAGE_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO_NAME}:${IMAGE_TAG}"
-      - aws ecr get-login-password --region "${AWS_DEFAULT_REGION}" | docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
-      - mkdir -p model
-      - aws s3 cp "${MODEL_ARTIFACT_S3_URI}" model/model.pkl
+      - ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
+      - IMAGE_URI="${ECR_REGISTRY}/${ECR_REPO_NAME}:${IMAGE_TAG}"
+      - aws ecr get-login-password --region "${AWS_DEFAULT_REGION}" | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
+
   build:
     commands:
-      - docker build -f docker/Dockerfile -t "${ECR_REPO_NAME}:${IMAGE_TAG}" .
-      - docker tag "${ECR_REPO_NAME}:${IMAGE_TAG}" "${IMAGE_URI}"
+      # FIX C-04: No model baked in — build is model-agnostic
+      - docker build -f docker/Dockerfile -t "${IMAGE_URI}" .
+      - docker tag "${IMAGE_URI}" "${ECR_REGISTRY}/${ECR_REPO_NAME}:latest"
+
   post_build:
     commands:
       - docker push "${IMAGE_URI}"
+      - docker push "${ECR_REGISTRY}/${ECR_REPO_NAME}:latest"
+      # FIX: Export ImageDetail.json for deterministic downstream consumption
+      - printf '{"ImageURI":"%s"}' "${IMAGE_URI}" > imageDetail.json
+      # Deploy to EKS
       - aws eks update-kubeconfig --name "${EKS_CLUSTER_NAME}" --region "${AWS_DEFAULT_REGION}"
-      - kubectl set image deployment/"${K8S_DEPLOYMENT_NAME}" "${K8S_CONTAINER_NAME}"="${IMAGE_URI}" --record=true
-      - kubectl rollout status deployment/"${K8S_DEPLOYMENT_NAME}" --timeout=180s
+      - NS="${K8S_NAMESPACE:-inference}"
+      - DEPLOY="${K8S_DEPLOYMENT:-credit-risk-api}"
+      - CONTAINER="${K8S_CONTAINER:-credit-risk-api}"
+      # FIX: Removed deprecated --record=true flag
+      - kubectl set image "deployment/${DEPLOY}" "${CONTAINER}=${IMAGE_URI}" -n "${NS}"
+      - kubectl rollout status "deployment/${DEPLOY}" -n "${NS}" --timeout=300s
 
 artifacts:
   files:
+    - imageDetail.json
     - pipeline/buildspec.yml
