@@ -2,16 +2,37 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: credit-risk-api
+  namespace: inference        # FIX C-02: Must match service namespace
   annotations:
-    kubernetes.io/ingress.class: alb
+    # FIX: Removed deprecated kubernetes.io/ingress.class annotation
+    # FIX C-01: HTTPS listener with ACM certificate
+    alb.ingress.kubernetes.io/certificate-arn: "${ACM_CERTIFICATE_ARN}"
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS": 443}, {"HTTP": 80}]'
+    # FIX C-01: Redirect all HTTP traffic to HTTPS
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/healthcheck-path: /health
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+    # FIX: Enable ALB access logs to S3 for audit trail
+    alb.ingress.kubernetes.io/load-balancer-attributes: >-
+      access_logs.s3.enabled=true,
+      access_logs.s3.bucket=${ALB_ACCESS_LOG_BUCKET},
+      access_logs.s3.prefix=credit-risk-api,
+      idle_timeout.timeout_seconds=60,
+      deletion_protection.enabled=true
+    # FIX: TLS security policy
+    alb.ingress.kubernetes.io/ssl-policy: "ELBSecurityPolicy-TLS13-1-2-2021-06"
+    # FIX: WAF association (replace with your WAF WebACL ARN)
+    alb.ingress.kubernetes.io/wafv2-acl-arn: "${WAF_WEBACL_ARN}"
 spec:
-  ingressClassName: alb
+  ingressClassName: alb       # FIX: Use only ingressClassName (annotation is deprecated)
   rules:
-    - http:
+    # FIX: Host-based routing (prevents catch-all exposure)
+    - host: "${API_HOSTNAME}"
+      http:
         paths:
           - path: /
             pathType: Prefix
