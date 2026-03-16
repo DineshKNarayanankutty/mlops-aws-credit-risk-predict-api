@@ -1,0 +1,13 @@
+# FIX C-02: Dedicated namespace for inference workloads.
+# IRSA role is scoped to system:serviceaccount:inference:inference-service
+# so all inference pods MUST run in this namespace.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: inference
+  labels:
+    # FIX: Enforce restricted Pod Security Standard on this namespace
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
