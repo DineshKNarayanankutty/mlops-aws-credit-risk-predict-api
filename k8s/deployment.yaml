@@ -76,6 +76,8 @@ spec:
               aws s3 cp "s3://${MODEL_BUCKET}/${MODEL_S3_KEY}" /model/model.pkl
               echo "Model download complete."
           env:
+            - name: HOME
+              value: /tmp
             - name: MODEL_BUCKET
               valueFrom:
                 configMapKeyRef:
